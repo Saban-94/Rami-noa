@@ -113,7 +113,34 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    res.setHeader('Allow', ['GET', 'POST']);
+    if (method === 'PATCH') {
+      const { taskId, status } = req.body;
+
+      if (!taskId || !status) {
+        return res.status(400).json({ error: "taskId ו-status הינם שדות חובה" });
+      }
+
+      const result = await tasksClient.tasks.patch({
+        tasklist: '@default',
+        task: taskId,
+        requestBody: {
+          id: taskId,
+          status: status
+        }
+      });
+
+      return res.json({
+        success: true,
+        task: {
+          id: result.data.id,
+          title: result.data.title,
+          status: result.data.status,
+          completed: result.data.completed
+        }
+      });
+    }
+
+    res.setHeader('Allow', ['GET', 'POST', 'PATCH']);
     return res.status(405).json({ error: `Method ${method} Not Allowed` });
 
   } catch (error: any) {

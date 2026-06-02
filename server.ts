@@ -341,6 +341,7 @@ app.get("/api/drive", driveHandler);
 app.post("/api/drive", driveHandler);
 app.get("/api/tasks", tasksHandler);
 app.post("/api/tasks", tasksHandler);
+app.patch("/api/tasks", tasksHandler);
 
 
 // Vite Dev Server / Prod Server Routing

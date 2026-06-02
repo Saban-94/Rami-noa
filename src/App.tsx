@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { motion } from 'motion/react';
 import { 
   Send, Menu, MapPin, Bell, Database, Copy, Check, ExternalLink, 
   Calendar, FileText, ListTodo, X, Phone, Mail, Heart,
@@ -58,6 +59,11 @@ export default function App() {
   const [newTaskPriority, setNewTaskPriority] = useState<"High" | "Medium" | "Low">("Medium");
   const [newTaskCategory, setNewTaskCategory] = useState<"Work" | "Personal" | "Shopping" | "Other">("Personal");
   const [isCreatingTask, setIsCreatingTask] = useState(false);
+
+  // Task Undo & Dynamic Toggle tracking states
+  const [lastToggledTask, setLastToggledTask] = useState<{ id: string; title: string; originalStatus: string } | null>(null);
+  const [showUndoToast, setShowUndoToast] = useState(false);
+  const undoTimeoutRef = useRef<any>(null);
 
   // Hidden Maintenance Portal and Multi-Screen Smartphone states
   const [phoneScreen, setPhoneScreen] = useState<'chat' | 'calendar' | 'drive' | 'tasks'>('chat');
@@ -165,6 +171,134 @@ export default function App() {
       setToastMessage("שגיית תקשורת בעת הוספת משימה לשרת");
     } finally {
       setLoadingLogs(false);
+    }
+  };
+
+  // Toggle task status
+  const toggleTaskStatus = async (taskId: string, currentStatus: string, taskTitle: string) => {
+    const newStatus = currentStatus === 'completed' ? 'needsAction' : 'completed';
+    
+    // 1. Optimistic UI Update
+    setGoogleTasks(prev => prev.map(task => {
+      if (task.id === taskId) {
+        return { ...task, status: newStatus };
+      }
+      return task;
+    }));
+
+    // 2. Clear any existing undo timeouts
+    if (undoTimeoutRef.current) {
+      clearTimeout(undoTimeoutRef.current);
+    }
+
+    // 3. Show undo toast if moving to 'completed'
+    if (newStatus === 'completed') {
+      setLastToggledTask({
+        id: taskId,
+        title: taskTitle,
+        originalStatus: currentStatus
+      });
+      setShowUndoToast(true);
+      
+      // Auto dismiss after 6 seconds
+      undoTimeoutRef.current = setTimeout(() => {
+        setShowUndoToast(false);
+      }, 6000);
+    } else {
+      setShowUndoToast(false);
+    }
+
+    // 4. Send network request to Google Tasks
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskId,
+          status: newStatus
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to update status on server");
+      }
+      
+      // Sync local Firestore logs sub-collection if user is signed in
+      if (currentUser) {
+        const logsLocRef = doc(collection(db, 'users', currentUser.uid, 'logs'));
+        await setDoc(logsLocRef, {
+          timestamp: new Date().toLocaleString('he-IL'),
+          toolName: 'משימות',
+          description: `עדכון סטטוס משימה: "${taskTitle}" ל- ${newStatus === 'completed' ? 'הושלמה' : 'פעילה'}`,
+          location: getLocationString(),
+          status: 'נרשם בהצלחה',
+          syncStatus: config.useSimulatedSheets ? 'נשמר מקומית (קופסה שחורה)' : 'סונכרן לגוגל שיטס'
+        }, { merge: true });
+      }
+    } catch (err) {
+      console.error("Failed to toggle task:", err);
+      setToastMessage("שגיאה בעדכון מצב המשימה מול שרתי גוגל");
+      // Revert optimistic update
+      setGoogleTasks(prev => prev.map(task => {
+        if (task.id === taskId) {
+          return { ...task, status: currentStatus };
+        }
+        return task;
+      }));
+    }
+  };
+
+  // Undo task status transition
+  const handleUndoTaskToggle = async () => {
+    if (!lastToggledTask) return;
+    
+    const { id, title, originalStatus } = lastToggledTask;
+    setShowUndoToast(false);
+    
+    // Optimistic UI Update
+    setGoogleTasks(prev => prev.map(task => {
+      if (task.id === id) {
+        return { ...task, status: originalStatus };
+      }
+      return task;
+    }));
+
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskId: id,
+          status: originalStatus
+        })
+      });
+
+      if (res.ok) {
+        setToastMessage(`פעולת ההשלמה בוטלה עבור: "${title}"`);
+        if (currentUser) {
+          const logsLocRef = doc(collection(db, 'users', currentUser.uid, 'logs'));
+          await setDoc(logsLocRef, {
+            timestamp: new Date().toLocaleString('he-IL'),
+            toolName: 'משימות',
+            description: `ביטול השלמת משימה: "${title}"`,
+            location: getLocationString(),
+            status: 'נרשם בהצלחה',
+            syncStatus: config.useSimulatedSheets ? 'נשמר מקומית (קופסה שחורה)' : 'סונכרן לגוגל שיטס'
+          }, { merge: true });
+        }
+      } else {
+        throw new Error("Failed to undo on server");
+      }
+    } catch (err) {
+      console.error("Undo action failed:", err);
+      setToastMessage("שגיאה בביטול הפעולה מול השרת");
+      // Revert back
+      setGoogleTasks(prev => prev.map(task => {
+        if (task.id === id) {
+          return { ...task, status: 'completed' };
+        }
+        return task;
+      }));
     }
   };
 
@@ -614,6 +748,29 @@ export default function App() {
           <Info className="w-4 h-4 text-sky-300" />
           <span>{toastMessage}</span>
         </div>
+      )}
+
+      {/* Task Complete Undo Toast */}
+      {showUndoToast && lastToggledTask && (
+        <motion.div 
+          initial={{ opacity: 0, y: 50, scale: 0.9 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-slate-900/95 text-white pl-4 pr-5 py-3 rounded-2xl text-xs font-semibold z-50 shadow-xl flex items-center gap-4 RTL direction-rtl border border-slate-700/50 animate-fade-in"
+        >
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+            <span className="truncate max-w-[180px]">
+              המשימה <strong>"{lastToggledTask.title}"</strong> הושלמה
+            </span>
+          </div>
+          <button 
+            type="button"
+            onClick={handleUndoTaskToggle}
+            className="px-3 py-1.5 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 active:scale-95 transition-all text-[11px] font-bold rounded-lg cursor-pointer flex items-center gap-1 select-none border border-emerald-500/30"
+          >
+            ביטול ↩️
+          </button>
+        </motion.div>
       )}
 
       {/* Main Container - Desktop centers the phone beautifully, mobile is clean fullscreen */}
@@ -1121,21 +1278,31 @@ export default function App() {
                           {categoryTasks.map((t: any) => (
                             <div 
                               key={t.id} 
-                              className="p-3 bg-white rounded-2xl border border-slate-100 flex items-center justify-between gap-3 text-right shadow-3xs hover:border-slate-200 transition-all animate-fade-in"
+                              className="p-3 bg-white rounded-2xl border border-slate-100 flex items-center justify-between gap-3 text-right shadow-3xs hover:border-slate-200 transition-all select-none"
                             >
-                              <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="flex items-center gap-2.5 min-w-0 flex-1">
                                 <input 
                                   type="checkbox" 
                                   checked={t.status === 'completed'} 
-                                  readOnly 
+                                  onChange={() => toggleTaskStatus(t.id, t.status, t.title)}
                                   className="w-4 h-4 accent-sky-500 rounded-lg cursor-pointer shrink-0"
                                 />
-                                <div className="text-right min-w-0">
-                                  <span className={`font-bold text-xs block truncate ${
-                                    t.status === 'completed' ? 'line-through text-slate-400 font-normal' : 'text-slate-800'
-                                  }`}>
-                                    {t.title}
-                                  </span>
+                                <div className="text-right min-w-0 flex-1">
+                                  <div className="relative inline-block max-w-full text-right leading-none py-1 align-middle">
+                                    <span className={`font-bold text-xs block truncate transition-all duration-300 ${
+                                      t.status === 'completed' ? 'text-slate-400 font-normal' : 'text-slate-800'
+                                    }`}>
+                                      {t.title}
+                                    </span>
+                                    {t.status === 'completed' && (
+                                      <motion.span 
+                                        className="absolute right-0 top-1/2 h-[1.5px] bg-slate-400/70"
+                                        initial={{ width: 0 }}
+                                        animate={{ width: "100%" }}
+                                        transition={{ duration: 0.35, ease: "easeOut" }}
+                                      />
+                                    )}
+                                  </div>
                                   {t.notes && <p className="text-[10px] text-slate-500 mt-0.5 font-medium truncate">{t.notes}</p>}
                                 </div>
                               </div>
