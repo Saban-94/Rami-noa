@@ -1,0 +1,6 @@
+{
+  "name": "Noa Assistant",
+  "description": "נועה - עוזרת המובייל האישית המחוברת לקופסה השחורה של גוגל",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

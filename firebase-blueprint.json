@@ -1,0 +1,77 @@
+{
+  "entities": {
+    "UserConfig": {
+      "title": "User Configuration",
+      "description": "User specific apps script configuration and settings",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "Verified email of the user"
+        },
+        "appsScriptUrl": {
+          "type": "string",
+          "description": "Apps script endpoint URL"
+        },
+        "useSimulatedSheets": {
+          "type": "boolean",
+          "description": "Whether to use mock simulation instead of Apps Script"
+        },
+        "spreadsheetUrl": {
+          "type": "string",
+          "description": "The connected spreadsheet URL"
+        }
+      },
+      "required": ["email", "appsScriptUrl", "useSimulatedSheets"]
+    },
+    "BlackBoxLog": {
+      "title": "Black Box Log",
+      "description": "Black box logs describing events, actions, and GPS details for the user",
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "description": "Formatted hebrew local time or server timestamp of log creation"
+        },
+        "toolName": {
+          "type": "string",
+          "enum": ["יומן", "כונן", "משימות", "כללי"],
+          "description": "Identified category of operation"
+        },
+        "description": {
+          "type": "string",
+          "description": "Hebrew description of action registered"
+        },
+        "location": {
+          "type": "string",
+          "description": "GPS lat/lng coordinate info or simulated city"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["פעיל", "נרשם בהצלחה", "נכשל"],
+          "description": "Internal processing status"
+        },
+        "syncStatus": {
+          "type": "string",
+          "enum": ["סונכרן לגוגל שיטס", "נשמר מקומית (קופסה שחורה)"],
+          "description": "Status of GAS synchronization"
+        },
+        "extraDetails": {
+          "type": "string",
+          "description": "Any additional custom data context"
+        }
+      },
+      "required": ["timestamp", "toolName", "description", "status", "syncStatus"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "UserConfig",
+      "description": "Users collection containing basic profile and sync configuration"
+    },
+    "users/{userId}/logs/{logId}": {
+      "schema": "BlackBoxLog",
+      "description": "Sub-collection of logs associated with a specific user"
+    }
+  }
+}

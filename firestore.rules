@@ -1,0 +1,103 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 1. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+    
+    // Helper Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+    
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function incoming() {
+      return request.resource.data;
+    }
+    
+    function existing() {
+      return resource.data;
+    }
+
+    // User Configuration matches
+    match /users/{userId} {
+      allow get: if isEmailVerified() && request.auth.uid == userId;
+      allow list: if isEmailVerified() && resource.data.email == request.auth.token.email;
+      
+      allow create: if isEmailVerified() 
+                    && request.auth.uid == userId 
+                    && isValidUserConfig(incoming());
+                    
+      allow update: if isEmailVerified() 
+                    && request.auth.uid == userId 
+                    && isValidUserConfig(incoming()) 
+                    && (
+                      // Action: Update settings
+                      (incoming().diff(existing()).affectedKeys().hasOnly(['appsScriptUrl', 'useSimulatedSheets', 'spreadsheetUrl']))
+                    );
+                    
+      allow delete: if false;
+    }
+
+    // Subcollection: BlackBoxLogs
+    match /users/{userId}/logs/{logId} {
+      allow get: if isEmailVerified() && request.auth.uid == userId && isValidId(logId);
+      allow list: if isEmailVerified() && request.auth.uid == userId;
+      
+      allow create: if isEmailVerified() 
+                    && request.auth.uid == userId 
+                    && isValidId(logId)
+                    && exists(/databases/$(database)/documents/users/$(userId))
+                    && isValidLog(incoming());
+                    
+      allow update: if isEmailVerified() 
+                    && request.auth.uid == userId 
+                    && isValidId(logId)
+                    && isValidLog(incoming())
+                    && existing().status != 'נרשם בהצלחה'
+                    && (
+                      // Action: Update status and sync info
+                      (incoming().diff(existing()).affectedKeys().hasOnly(['status', 'syncStatus']))
+                    );
+                    
+      allow delete: if isEmailVerified() && request.auth.uid == userId && isValidId(logId);
+    }
+    
+    // Schema definitions & checkers
+    function isValidUserConfig(data) {
+      return data.keys().hasAll(['email', 'appsScriptUrl', 'useSimulatedSheets']) 
+             && data.keys().size() <= 4
+             && data.email is string 
+             && data.email.size() >= 3 && data.email.size() <= 256
+             && data.email == request.auth.token.email
+             && data.appsScriptUrl is string 
+             && data.appsScriptUrl.size() <= 1024
+             && data.useSimulatedSheets is bool
+             && (!data.keys().hasAny(['spreadsheetUrl']) || (data.spreadsheetUrl is string && data.spreadsheetUrl.size() <= 1024));
+    }
+    
+    function isValidLog(data) {
+      return data.keys().hasAll(['timestamp', 'toolName', 'description', 'location', 'status', 'syncStatus']) 
+             && data.keys().size() <= 7
+             && data.timestamp is string && data.timestamp.size() >= 1 && data.timestamp.size() <= 100
+             && data.toolName is string && data.toolName.size() >= 2 && data.toolName.size() <= 30
+             && (data.toolName == 'יומן' || data.toolName == 'כונן' || data.toolName == 'משימות' || data.toolName == 'כללי')
+             && data.description is string && data.description.size() >= 1 && data.description.size() <= 2000
+             && data.location is string && data.location.size() >= 1 && data.location.size() <= 300
+             && data.status is string && data.status.size() >= 2 && data.status.size() <= 50
+             && (data.status == 'פעיל' || data.status == 'נרשם בהצלחה' || data.status == 'נכשל')
+             && data.syncStatus is string && data.syncStatus.size() >= 2 && data.syncStatus.size() <= 60
+             && (data.syncStatus == 'סונכרן לגוגל שיטס' || data.syncStatus == 'נשמר מקומית (קופסה שחורה)')
+             && (!data.keys().hasAny(['extraDetails']) || (data.extraDetails is string && data.extraDetails.size() <= 5000));
+    }
+  }
+}
