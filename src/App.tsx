@@ -46,6 +46,211 @@ export default function App() {
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [activeTab, setActiveTab] = useState<'כל' | 'יומן' | 'כונן' | 'משימות' | 'הסבר'>('כל');
 
+  // Real Google Workspace states (Fetched in real-time from backend APIs)
+  const [calendarEvents, setCalendarEvents] = useState<any[]>([]);
+  const [driveFiles, setDriveFiles] = useState<any[]>([]);
+  const [googleTasks, setGoogleTasks] = useState<any[]>([]);
+  const [loadingCalendar, setLoadingCalendar] = useState(false);
+  const [loadingDrive, setLoadingDrive] = useState(false);
+  const [loadingTasks, setLoadingTasks] = useState(false);
+
+  // New Google Tasks creation tool states (with Priority level field)
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskNotes, setNewTaskNotes] = useState("");
+  const [newTaskPriority, setNewTaskPriority] = useState<"High" | "Medium" | "Low">("Medium");
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
+
+  // Fetch real Google Calendar Events
+  const fetchCalendar = async () => {
+    setLoadingCalendar(true);
+    try {
+      const res = await fetch("/api/calendar");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setCalendarEvents(data.events || []);
+        }
+      }
+    } catch (e) {
+      console.error("Error fetching calendar events:", e);
+    } finally {
+      setLoadingCalendar(false);
+    }
+  };
+
+  // Fetch real Google Drive Files
+  const fetchDriveFiles = async () => {
+    setLoadingDrive(true);
+    try {
+      const res = await fetch("/api/drive");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setDriveFiles(data.files || []);
+        }
+      }
+    } catch (e) {
+      console.error("Error fetching drive files:", e);
+    } finally {
+      setLoadingDrive(false);
+    }
+  };
+
+  // Fetch real Google Tasks
+  const fetchGoogleTasks = async () => {
+    setLoadingTasks(true);
+    try {
+      const res = await fetch("/api/tasks");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setGoogleTasks(data.tasks || []);
+        }
+      }
+    } catch (e) {
+      console.error("Error fetching tasks:", e);
+    } finally {
+      setLoadingTasks(false);
+    }
+  };
+
+  // Create Real Google Calendar Event from UI
+  const createRealCalendarEvent = async () => {
+    const summary = window.prompt("הזן כותרת לפגישה חדשה ביומן גוגל (היצירה מתבצעת בזמן אמת!):", "פגישת עבודה מתוזמנת");
+    if (!summary) return;
+
+    setLoadingLogs(true);
+    try {
+      const res = await fetch("/api/calendar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          summary,
+          description: "נוצר ישירות דרך ממשק הפיתוח של נועה",
+          location: getLocationString(),
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setToastMessage(`הפגישה "${summary}" נוצרה בהצלחה ביומן הגוגל האמיתי! 📅`);
+          triggerPushNotification("פגישה חדשה נקלטה ביומן", summary);
+          fetchCalendar();
+          fetchEnvAndLogs();
+        }
+      } else {
+        const errData = await res.json();
+        setToastMessage(`שגיאה ביצירת פגישה: ${errData.error || 'נסה שוב'}`);
+      }
+    } catch (err) {
+      console.error("Calendar creation failed:", err);
+      setToastMessage("שגיית תקשורת בעת יצירת פגישה");
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
+  // Create Real Google Drive File from UI
+  const createRealDriveFile = async () => {
+    const name = window.prompt("הזן שם למסמך חדש שיווצר בגוגל דרייב (זמן אמת):", "סיכום_מערכת_נועה.doc");
+    if (!name) return;
+
+    setLoadingLogs(true);
+    try {
+      const res = await fetch("/api/drive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          content: "מסמך זה נוצר ביוזמה ישירה מממשק המנהל של נועה העוזרת הניידת.",
+          type: "file"
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setToastMessage(`הקובץ "${name}" נוצר בהצלחה בגוגל דרייב האמיתי! 📁`);
+          triggerPushNotification("קובץ חדש נוצר בכונן של נועה", name);
+          fetchDriveFiles();
+          fetchEnvAndLogs();
+        }
+      } else {
+        const errData = await res.json();
+        setToastMessage(`שגיאה ביצירת קובץ: ${errData.error || 'נסה שוב'}`);
+      }
+    } catch (err) {
+      console.error("Drive file creation failed:", err);
+      setToastMessage("שגיית תקשורת בעת שמירה לדרייב");
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
+  // Create Real Google Task from UI
+  const createRealGoogleTask = async (titleArg?: string, notesArg?: string, priorityArg?: "High" | "Medium" | "Low") => {
+    let title = titleArg;
+    let priority: string = priorityArg || "Medium";
+    let notes = notesArg || "נוסף ידנית דרך ממשק פאנל המשימות המאובטח";
+
+    if (!title) {
+      title = window.prompt("הזן כותרת למשימה חדשה בגוגל Tasks (זמן אמת):", "משימה דחופה לטיפול") || undefined;
+      if (!title) return;
+
+      const pInput = window.prompt("הזן עדיפות למשימה: High (גבוהה), Medium (בינונית), Low (נמוכה) - ברירת מחדל Medium:", "High");
+      if (pInput) {
+        const cleaned = pInput.trim().toLowerCase();
+        if (cleaned === 'high' || cleaned === 'גבוה') priority = 'High';
+        else if (cleaned === 'low' || cleaned === 'נמוך') priority = 'Low';
+        else priority = 'Medium';
+      }
+    }
+
+    setLoadingLogs(true);
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          notes,
+          priority
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setToastMessage(`המשימה "${title}" נוספה בהצלחה עם עדיפות ${priority === 'High' ? 'גבוהה 🔴' : priority === 'Medium' ? 'בינונית 🟡' : 'נמוכה 🟢'}! 📋`);
+          triggerPushNotification("משימה חדשה נקלטה במערכת", title);
+          fetchGoogleTasks();
+          fetchEnvAndLogs();
+        }
+      } else {
+        const errData = await res.json();
+        setToastMessage(`שגיאה ביצירת משימה: ${errData.error || 'נסה שוב'}`);
+      }
+    } catch (err) {
+      console.error("Google task creation failed:", err);
+      setToastMessage("שגיית תקשורת בעת הוספת משימה לשרת");
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
+  // Effect to load real data when activeTab changes
+  useEffect(() => {
+    if (activeTab === 'יומן') {
+      fetchCalendar();
+    } else if (activeTab === 'כונן') {
+      fetchDriveFiles();
+    } else if (activeTab === 'משימות') {
+      fetchGoogleTasks();
+    }
+  }, [activeTab]);
+
+
   // Geolocation States
   const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [geoMode, setGeoMode] = useState<'real' | 'simulated'>('simulated');
@@ -1095,6 +1300,265 @@ export default function App() {
             ) : (
               /* TAB: Logs list representation */
               <div className="flex-1 overflow-x-auto">
+                {/* Real-time Google Workspace Data Content Section */}
+                {activeTab === 'יומן' && (
+                  <div className="mb-6 bg-white p-4 rounded-2xl border border-[#EAE0D5] text-right">
+                    <div className="flex justify-between items-center mb-3">
+                      <button 
+                        onClick={fetchCalendar}
+                        className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 pr-1.5 pl-2.5 py-1 rounded-lg font-bold flex items-center gap-1 transition-all cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${loadingCalendar ? 'animate-spin' : ''}`} />
+                        <span>רענן יומן</span>
+                      </button>
+                      <h4 className="font-bold text-xs text-indigo-950 border-r-4 border-indigo-500 pr-2">פגישות קרובות ביומן גוגל (שידור חי) 📅</h4>
+                    </div>
+                    {loadingCalendar ? (
+                      <div className="py-6 text-center text-slate-400 font-mono text-xs">טוען אירועים מיומן גוגל...</div>
+                    ) : calendarEvents.length === 0 ? (
+                      <div className="py-4 text-center text-slate-400 text-xs">אין פגישות קרובות ביומן החשבון</div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-64 overflow-y-auto pr-1">
+                        {calendarEvents.map((ev: any) => (
+                          <div key={ev.id} className="p-3 bg-indigo-50/40 rounded-xl border border-indigo-100 flex flex-col justify-between hover:bg-indigo-50 transition-all">
+                            <div>
+                              <h5 className="font-bold text-xs text-indigo-950 mb-1">{ev.summary}</h5>
+                              {ev.description && <p className="text-[10px] text-slate-500 line-clamp-1 mb-1">{ev.description}</p>}
+                              {ev.location && <p className="text-[9px] text-[#0369A1] font-medium mb-1">📍 {ev.location}</p>}
+                              <span className="text-[9px] text-slate-400 font-mono block mt-1">
+                                {new Date(ev.start).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" })}
+                              </span>
+                            </div>
+                            {ev.htmlLink && (
+                              <a 
+                                href={ev.htmlLink} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="mt-2 text-center text-[9px] font-bold bg-[#B2E2F2] hover:bg-opacity-80 text-[#0369A1] py-1 px-2 rounded-lg transition-all"
+                              >
+                                צפה ביומין 📅
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === 'כונן' && (
+                  <div className="mb-6 bg-white p-4 rounded-2xl border border-[#EAE0D5] text-right">
+                    <div className="flex justify-between items-center mb-3">
+                      <button 
+                        onClick={fetchDriveFiles}
+                        className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 pr-1.5 pl-2.5 py-1 rounded-lg font-bold flex items-center gap-1 transition-all cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${loadingDrive ? 'animate-spin' : ''}`} />
+                        <span>רענן כונן</span>
+                      </button>
+                      <h4 className="font-bold text-xs text-emerald-950 border-r-4 border-emerald-500 pr-2">קבצים ומסמכים אחרונים בגוגל דרייב 📁</h4>
+                    </div>
+                    {loadingDrive ? (
+                      <div className="py-6 text-center text-slate-400 font-mono text-xs">טוען קבצים מכונן גוגל...</div>
+                    ) : driveFiles.length === 0 ? (
+                      <div className="py-4 text-center text-slate-400 text-xs">אין קבצים בחשבון דרייב זה</div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-64 overflow-y-auto pr-1">
+                        {driveFiles.map((file: any) => (
+                          <div key={file.id} className="p-3 bg-emerald-50/40 rounded-xl border border-emerald-100 flex items-center justify-between hover:bg-emerald-50 transition-all gap-2">
+                            <div className="flex-1 min-w-0">
+                              <h5 className="font-bold text-xs text-emerald-950 truncate">{file.name}</h5>
+                              <p className="text-[9px] text-slate-400 mt-1">
+                                עודכן: {new Date(file.modifiedTime).toLocaleDateString("he-IL")} {file.size ? `• ${file.size}` : ''}
+                              </p>
+                            </div>
+                            {file.webViewLink && (
+                              <a 
+                                href={file.webViewLink} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="shrink-0 text-center text-[9px] font-bold bg-[#B2E2F2] hover:bg-opacity-80 text-[#0369A1] py-1.5 px-2.5 rounded-lg transition-all"
+                              >
+                                פתח קובץ 📂
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === 'משימות' && (
+                  <div className="mb-6 bg-white p-4 rounded-2xl border border-[#EAE0D5] text-right">
+                    <div className="flex justify-between items-center mb-3">
+                      <button 
+                        onClick={fetchGoogleTasks}
+                        className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 pr-1.5 pl-2.5 py-1 rounded-lg font-bold flex items-center gap-1 transition-all cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${loadingTasks ? 'animate-spin' : ''}`} />
+                        <span>רענן משימות</span>
+                      </button>
+                      <h4 className="font-bold text-xs text-pink-950 border-r-4 border-pink-500 pr-2">משימות פעילות בגוגל Tasks 📋</h4>
+                    </div>
+
+                    {/* Inline Task Creation Form Component */}
+                    <form 
+                      onSubmit={async (e) => {
+                        e.preventDefault();
+                        if (!newTaskTitle.trim()) return;
+                        setIsCreatingTask(true);
+                        await createRealGoogleTask(newTaskTitle, newTaskNotes, newTaskPriority);
+                        setNewTaskTitle("");
+                        setNewTaskNotes("");
+                        setNewTaskPriority("Medium");
+                        setIsCreatingTask(false);
+                      }}
+                      className="mb-5 p-4 bg-pink-50/10 rounded-2xl border border-pink-100 flex flex-col gap-3 text-right"
+                    >
+                      <div className="text-[11px] font-bold text-pink-900 border-b border-pink-100/50 pb-1.5 flex items-center gap-1 select-none">
+                        <span>➕ יצירת משימה חכמה עם רמת עדיפות (זמן אמת)</span>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 mb-1">כותרת המשימה:</label>
+                          <input 
+                            type="text"
+                            required
+                            placeholder="לדוגמה: לבצע אינטגרציה מלאה לשרת"
+                            value={newTaskTitle}
+                            onChange={(e) => setNewTaskTitle(e.target.value)}
+                            className="w-full text-xs p-2 rounded-xl border border-[#EAE0D5] bg-[#FAF9F6] text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-pink-300 focus:ring-1 focus:ring-pink-300 transition-all text-right"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 mb-1">רמת עדיפות המשימה:</label>
+                          <div className="grid grid-cols-3 gap-1 bg-[#FAF9F6] p-1 rounded-xl border border-[#EAE0D5]">
+                            <button
+                              type="button"
+                              onClick={() => setNewTaskPriority("High")}
+                              className={`text-[10px] py-1 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1 cursor-pointer select-none ${
+                                newTaskPriority === 'High' 
+                                  ? 'bg-[#FEE2E2] text-[#991B1B] border border-[#FCA5A5]' 
+                                  : 'hover:bg-slate-50 text-slate-400'
+                              }`}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                              <span>גבוהה (High)</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setNewTaskPriority("Medium")}
+                              className={`text-[10px] py-1 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1 cursor-pointer select-none ${
+                                newTaskPriority === 'Medium' 
+                                  ? 'bg-[#FEF3C7] text-[#92400E] border border-[#FCD34D]' 
+                                  : 'hover:bg-slate-50 text-slate-400'
+                              }`}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                              <span>בינונית (Med)</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setNewTaskPriority("Low")}
+                              className={`text-[10px] py-1 px-2 rounded-lg font-bold transition-all flex items-center justify-center gap-1 cursor-pointer select-none ${
+                                newTaskPriority === 'Low' 
+                                  ? 'bg-[#D1FAE5] text-[#065F46] border border-[#6EE7B7]' 
+                                  : 'hover:bg-slate-50 text-slate-400'
+                              }`}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                              <span>נמוכה (Low)</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 mb-1">הערות / פירוט נוסף:</label>
+                        <textarea 
+                          placeholder="תיאור המשימה, פרטים חשובים, סינכרון וכדומה..."
+                          value={newTaskNotes}
+                          onChange={(e) => setNewTaskNotes(e.target.value)}
+                          rows={2}
+                          className="w-full text-xs p-2 rounded-xl border border-[#EAE0D5] bg-[#FAF9F6] text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-pink-300 focus:ring-1 focus:ring-pink-300 transition-all text-right resize-none"
+                        />
+                      </div>
+
+                      <div className="flex justify-end mt-1">
+                        <button
+                          type="submit"
+                          disabled={isCreatingTask || !newTaskTitle.trim()}
+                          className="bg-pink-600 hover:bg-pink-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold text-xs px-4 py-2 rounded-xl border border-pink-700/30 shadow-xs transition-all cursor-pointer select-none"
+                        >
+                          {isCreatingTask ? 'רושם משימה...' : 'הוסף משימה כעת 📋'}
+                        </button>
+                      </div>
+                    </form>
+
+                    {loadingTasks ? (
+                      <div className="py-6 text-center text-slate-400 font-mono text-xs">טוען משימות מגוגל...</div>
+                    ) : googleTasks.length === 0 ? (
+                      <div className="py-4 text-center text-slate-400 text-xs">אין משימות פעילות ברשימה זו</div>
+                    ) : (
+                      <div className="flex flex-col gap-2 max-h-80 overflow-y-auto pr-1">
+                        {googleTasks.map((t: any) => (
+                          <div key={t.id} className="p-2.5 bg-pink-50/20 rounded-xl border border-pink-100 flex items-center justify-between hover:bg-pink-50/45 transition-all gap-3">
+                            <div className="flex items-center gap-2">
+                              <input 
+                                type="checkbox" 
+                                checked={t.status === 'completed'} 
+                                readOnly 
+                                className="w-3.5 h-3.5 accent-pink-600 rounded-sm cursor-pointer"
+                              />
+                              <div className="text-right">
+                                <span className={`font-bold text-xs ${t.status === 'completed' ? 'line-through text-slate-400 font-normal' : 'text-pink-950'}`}>
+                                  {t.title}
+                                </span>
+                                {t.notes && <p className="text-[10px] text-slate-500 mt-0.5 font-medium">{t.notes}</p>}
+                              </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-2 shrink-0 select-none">
+                              {/* Beautiful priority level badge */}
+                              {t.priority === 'High' && (
+                                <span className="text-[9px] bg-red-100/70 border border-red-200 text-red-700 font-bold px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                                  גבוה
+                                </span>
+                              )}
+                              {t.priority === 'Medium' && (
+                                <span className="text-[9px] bg-amber-100/70 border border-amber-200 text-amber-700 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                  בינוני
+                                </span>
+                              )}
+                              {t.priority === 'Low' && (
+                                <span className="text-[9px] bg-emerald-100/70 border border-emerald-200 text-emerald-700 font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                  נמוך
+                                </span>
+                              )}
+
+                              {t.due && (
+                                <span className="text-[8px] text-slate-400 bg-white border border-slate-100 px-1.5 py-0.5 rounded-md font-mono">
+                                  יעד: {new Date(t.due).toLocaleDateString("he-IL")}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Section Header for black box logs */}
+                <div className="mb-2 mr-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">קופסה שחורה - היסטוריית פעולות סנכרון:</span>
+                </div>
+
                 {filteredLogs.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-slate-400 text-center">
                     <Database className="w-8 h-8 text-slate-300 stroke-1 mb-2" />
@@ -1155,28 +1619,28 @@ export default function App() {
 
             {/* Quick Actions Emulator Row */}
             <div className="bg-[#FAF9F6] p-4 rounded-2xl border border-[#EAE0D5] flex flex-col gap-2.5 mt-auto">
-              <h4 className="text-xs font-bold text-slate-700 text-right">סימולטור לבדיקות קופסה מהירות:</h4>
+              <h4 className="text-xs font-bold text-slate-700 text-right">קיצורי דרך לפעולות ישירות בחשבון גוגל (זמן אמת):</h4>
               <div className="flex flex-wrap gap-2 justify-end">
                 <button
-                  onClick={() => addNewManualLog("יומן", "תיאום פגישה: סקירת תקציב פרויקט שנת 2026", "משרדי החברה")}
+                  onClick={createRealCalendarEvent}
                   className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 py-1.5 px-3 rounded-lg text-xs font-semibold select-none flex items-center gap-1.5 cursor-pointer"
                 >
                   <Calendar className="w-3.5 h-3.5 text-indigo-500" />
-                  <span>הדמיית יומן פגישות</span>
+                  <span>יצירת פגישה ביומן</span>
                 </button>
                 <button
-                  onClick={() => addNewManualLog("משימות", "רשימת משימות: לבצע טשטוש ואימות מפתח של האפליקציה", "לוקאלי")}
+                  onClick={createRealGoogleTask}
                   className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 py-1.5 px-3 rounded-lg text-xs font-semibold select-none flex items-center gap-1.5 cursor-pointer"
                 >
                   <ListTodo className="w-3.5 h-3.5 text-pink-500" />
-                  <span>הדמיית משימות</span>
+                  <span>הוספת משימה חדשה</span>
                 </button>
                 <button
-                  onClick={() => addNewManualLog("כונן", "יצירת מסמך סיכום אפיון אפליקציית נועה 2026.docx", "גוגל דרייב")}
+                  onClick={createRealDriveFile}
                   className="bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 py-1.5 px-3 rounded-lg text-xs font-semibold select-none flex items-center gap-1.5 cursor-pointer"
                 >
                   <FileText className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>הדמיית כונן גוגל</span>
+                  <span>יצירת קובץ בדרייב</span>
                 </button>
                 <button
                   onClick={() => {
@@ -1186,7 +1650,7 @@ export default function App() {
                   className="bg-amber-50 hover:bg-amber-100/70 text-amber-800 border border-amber-200 py-1.5 px-3 rounded-lg text-xs font-bold select-none flex items-center gap-1.5 cursor-pointer animate-pulse"
                 >
                   <Bell className="w-3.5 h-3.5 text-amber-600" />
-                  <span>קבלת Push Notification</span>
+                  <span>בדיקת התראת Push</span>
                 </button>
               </div>
             </div>

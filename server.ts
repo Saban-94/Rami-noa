@@ -1,8 +1,13 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+
+// Import real Google API endpoints
+import chatHandler from "./api/chat.js";
+import calendarHandler from "./api/calendar.js";
+import driveHandler from "./api/drive.js";
+import tasksHandler from "./api/tasks.js";
 
 dotenv.config();
 
@@ -38,26 +43,6 @@ let sysConfig = {
   appsScriptUrl: "https://script.google.com/macros/s/AKfycbycL710BrrgkCntQH6JyucaTjN5A0ep2t7R7iYh72VVxljvRyl9oXmVveGZ54ZV8gZ3eA/exec",
   useSimulatedSheets: false
 };
-
-// Lazy initialization of Google Gen AI
-let aiClient: GoogleGenAI | null = null;
-function getGeminiClient() {
-  if (!aiClient) {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key) {
-      return null;
-    }
-    aiClient = new GoogleGenAI({
-      apiKey: key,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build'
-        }
-      }
-    });
-  }
-  return aiClient;
-}
 
 // Check key availability
 app.get("/api/env-check", (req, res) => {
@@ -309,153 +294,15 @@ async function handleHeuristicFallback(message: string, locStr: string, timestam
   };
 }
 
-// Process a conversational user prompt through Gemini
-app.post("/api/chat", async (req, res) => {
-  const { message, location, locationString } = req.body;
-  if (!message || message.trim() === "") {
-    return res.status(400).json({ error: "נא להזין הודעה תקינה" });
-  }
+// Hook up real Vercel-compatible Google API endpoints
+app.post("/api/chat", chatHandler);
+app.get("/api/calendar", calendarHandler);
+app.post("/api/calendar", calendarHandler);
+app.get("/api/drive", driveHandler);
+app.post("/api/drive", driveHandler);
+app.get("/api/tasks", tasksHandler);
+app.post("/api/tasks", tasksHandler);
 
-  const locStr = locationString || (location ? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}` : "תל אביב, ישראל");
-  const timestamp = new Date().toLocaleString("he-IL", { timeZone: "Asia/Jerusalem" });
-
-  const ai = getGeminiClient();
-
-  if (!ai) {
-    const fallbackResult = await handleHeuristicFallback(message, locStr, timestamp, false);
-    return res.json(fallbackResult);
-  }
-
-  // Real Gemini logic using @google/genai structured schema
-  try {
-    const promptSystem = `
-      אתה מנוע החשיבה של "נועה" (Noa), עוזרת אישית אינטליגנטית, יוקרתית וחדשנית המותקנת בנייד של המשתמש.
-      התפקיד שלך הוא לשרת את המשתמש בעברית מלאה, שוטפת, בנימה חמה, מקצועית ומנומסת ביותר.
-      עליך לפרש את ההודעה של המשתמש, להחליט לאיזה כלי ניהול (toolName) היא משתייכת:
-      1. "יומן" (למשל: תיאום פגישות, אירועים, זמנים, שינוי לוחות זמנים, תזכורות עם זמנים מוגדרים).
-      2. "כונן" (למשל: שמירה, עיבוד מסמכים, כתיבת סיכומי שיחה, יצירת קבצים, חיבור קבצים או דוחו"ת).
-      3. "משימות" (למשל: רשימת קניות, תוספות של משימות פשוטות לביצוע או checklists).
-      4. "כללי" (למשל: שאלות שיחה רגילות, עזרה, בדיקות מערכת, שאלות הכוון).
-
-      עליך להפיק פלט בפורמט JSON בלבד התואם בדיוק לסקמה שהוגדרה.
-      - בתשובה שלך למשתמש (reply), עלייך לנסח אותה בצורה שירותית ומזמינה המפרטת את סיום הפעולה שתרשם ברקע.
-      - בקטגוריית description, נסח משפט תיאור קצר, פורמלי ומדויק בעברית לרישום בגוגל שיטס (למשל: "הוספת פגישת עבודה עם אייל מחר ב-14:00").
-      - בקטגוריית extraDetails, הוסף פרטים נוספים לארכיון (כגון מועד מיועד, תכולה, רמת דחיפות ועוד).
-      - עליך להציע תמיד בין 1 ל-3 כפתורים אינטראקטיביים (buttons) המאפשרים למשתמש לעשות קישור חיצוני חשוב (כמו פתיחת דרייב, פתיחת יומן, שליחת מייל, חיוג מהיר לביצוע) או שליחת תגובה מהירה.
-        * כפתורים חייבים לכלול טקסט עברי פשוט, בהיר לחלוטין ללא מילים לועזיות (למשל השתמש ב-'חייג לבירור' במקום 'טלפון').
-        * סוגי הכפתורים הם:
-          - 'link': פתיחת כתובת אינטרנט או Schema Intent (כמו tel:..., mailto:..., https://maps.google.com, https://calendar.google.com).
-          - 'quick_reply': שליחת הודעת טקסט מוכנה מראש חזרה לצ'אט.
-          - 'action': פקודת מערכת מיוחדת לעדכון (כמו 'LOCATION_SYNC' או 'PULL_LATEST').
-    `;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: [
-        { role: "user", parts: [{ text: `מיקום המשתמש כרגע: ${locStr}\nהזמן הנוכחי: ${timestamp}\n\nהודעת המשתמש:\n${message}` }] }
-      ],
-      config: {
-        systemInstruction: promptSystem,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            reply: { type: Type.STRING, description: "תשובת נועה המילולית בעברית" },
-            toolType: { type: Type.STRING, description: "אחת מן האפשרויות הבאות בדיוק בלבד: יומן, כונן, משימות, כללי" },
-            description: { type: Type.STRING, description: "תיאור הפעולה לרישום" },
-            extraDetails: { type: Type.STRING, description: "פרטי עזר קצרים לרישום" },
-            buttons: {
-              type: Type.ARRAY,
-              description: "מערך כפתורים אינטראקטיביים שיעוצבו בבועת הצ'אט",
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  text: { type: Type.STRING, description: "כיתוב עברי ברור בלבד" },
-                  type: { type: Type.STRING, description: "link / quick_reply / action" },
-                  payload: { type: Type.STRING, description: "הקישור או הערך לשליחה" }
-                },
-                required: ["text", "type", "payload"]
-              }
-            }
-          },
-          required: ["reply", "toolType", "description", "extraDetails", "buttons"]
-        }
-      }
-    });
-
-    const outputText = response.text || "{}";
-    const result = JSON.parse(outputText.trim());
-
-    const finalToolType = result.toolType || "כללי";
-    const finalDescription = result.description || `דו-שיח עם נועה באפליקציה`;
-    const finalExtraDetails = result.extraDetails || "";
-    const finalReply = result.reply || "הפעולה התקבלה ותועדה במערכת היוקרה של נועה";
-    const finalButtons = result.buttons || [];
-
-    // Document to black box / Google Sheets
-    const newLog = {
-      id: `log_${Date.now()}`,
-      timestamp,
-      toolName: finalToolType,
-      description: finalDescription,
-      location: locStr,
-      status: "נרשם בהצלחה" as "פעיל" | "נרשם בהצלחה" | "נכשל",
-      syncStatus: "נשמר מקומית (קופסה שחורה)" as "סונכרן לגוגל שיטס" | "נשמר מקומית (קופסה שחורה)"
-    };
-
-    let syncOk = false;
-    let spreadsheetUrl = "";
-
-    if (sysConfig.appsScriptUrl && !sysConfig.useSimulatedSheets) {
-      try {
-        const responseGas = await fetch(sysConfig.appsScriptUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            toolName: finalToolType,
-            description: finalDescription,
-            location: locStr,
-            extraDetails: finalExtraDetails,
-            timestamp: timestamp
-          })
-        });
-        const gasPayload: any = await responseGas.json();
-        if (gasPayload && gasPayload.status === "success") {
-          newLog.syncStatus = "סונכרן לגוגל שיטס";
-          syncOk = true;
-          if (gasPayload.spreadsheetUrl) {
-            spreadsheetUrl = gasPayload.spreadsheetUrl;
-          }
-        }
-      } catch (err: any) {
-        console.error("GAS dispatch failed in Chat API:", err.message);
-      }
-    }
-
-    localLogs.unshift(newLog);
-
-    res.json({
-      success: true,
-      message: {
-        id: `msg_${Date.now()}`,
-        sender: "noa",
-        text: finalReply,
-        timestamp,
-        toolType: finalToolType,
-        toolActionDetails: finalDescription,
-        buttons: finalButtons
-      },
-      log: newLog,
-      spreadsheetUrl
-    });
-
-  } catch (error: any) {
-    console.error("Gemini invocation failed, falling back to heuristic handler:", error);
-    // Graceful high-availability auto fallback when Gemini has high demand (503), quota limits or error
-    const fallbackResult = await handleHeuristicFallback(message, locStr, timestamp, true);
-    res.json(fallbackResult);
-  }
-});
 
 // Vite Dev Server / Prod Server Routing
 async function startServer() {
