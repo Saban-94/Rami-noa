@@ -8,6 +8,7 @@ import chatHandler from "./api/chat.js";
 import calendarHandler from "./api/calendar.js";
 import driveHandler from "./api/drive.js";
 import tasksHandler from "./api/tasks.js";
+import { getGoogleAuth, getTasksClient } from "./api/google-auth.js";
 
 dotenv.config();
 
@@ -50,6 +51,44 @@ app.get("/api/env-check", (req, res) => {
     hasGeminiKey: !!process.env.GEMINI_API_KEY,
     hasAppsScriptUrl: !!sysConfig.appsScriptUrl,
     appsScriptUrl: sysConfig.appsScriptUrl
+  });
+});
+
+// Provide full diagnostic check of server and Google API connection for hidden maintenance screen
+app.get("/api/diagnostics", async (req, res) => {
+  let googleAuthOk = false;
+  let googleAuthError = null;
+  let googleScopes: string[] = [];
+
+  try {
+    const auth = getGoogleAuth();
+    const tasksClient = getTasksClient();
+    // Quickly fetch with limit 1 to verify connectivity
+    await tasksClient.tasks.list({
+      tasklist: "@default",
+      maxResults: 1
+    });
+    googleAuthOk = true;
+    googleScopes = [
+      "https://www.googleapis.com/auth/calendar",
+      "https://www.googleapis.com/auth/drive",
+      "https://www.googleapis.com/auth/tasks"
+    ];
+  } catch (err: any) {
+    googleAuthError = err.message || String(err);
+  }
+
+  res.json({
+    success: true,
+    serverStatus: "Online",
+    hasGeminiKey: !!process.env.GEMINI_API_KEY,
+    hasGoogleServiceAccount: !!process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
+    googleAuthOk,
+    googleAuthError,
+    googleScopes,
+    appsScriptUrl: sysConfig.appsScriptUrl,
+    useSimulatedSheets: sysConfig.useSimulatedSheets,
+    logsCount: localLogs.length
   });
 });
 

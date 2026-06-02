@@ -18,6 +18,7 @@ export default async function handler(req: any, res: any) {
       const tasks = (response.data.items || []).map((task: any) => {
         const notesStr = task.notes || '';
         let priority = 'Medium';
+        let category = 'Other';
         let cleanNotes = notesStr;
 
         // Try parsing [Priority: High/Medium/Low] tag
@@ -25,7 +26,7 @@ export default async function handler(req: any, res: any) {
         if (priorityMatch) {
           priority = priorityMatch[1];
           // Extrapolate and leave notes clean
-          cleanNotes = notesStr.replace(/\[Priority:\s*(High|Medium|Low)\]\s*/gi, '').trim();
+          cleanNotes = cleanNotes.replace(/\[Priority:\s*(High|Medium|Low)\]/gi, '').trim();
         } else {
           // Check Hebrew equivalents in case they were entered in Hebrew
           const hebrewMatch = notesStr.match(/עדיפות:\s*(גבוה|בינוני|נמוך)/i);
@@ -34,7 +35,25 @@ export default async function handler(req: any, res: any) {
             if (val === 'גבוה') priority = 'High';
             else if (val === 'בינוני') priority = 'Medium';
             else if (val === 'נמוך') priority = 'Low';
-            cleanNotes = notesStr.replace(/עדיפות:\s*(גבוה|בינוני|נמוך)\s*/gi, '').trim();
+            cleanNotes = cleanNotes.replace(/עדיפות:\s*(גבוה|בינוני|נמוך)\s*/gi, '').trim();
+          }
+        }
+
+        // Try parsing [Category: Work/Personal/Shopping/Other] tag
+        const categoryMatch = notesStr.match(/\[Category:\s*(Work|Personal|Shopping|Other)\]/i);
+        if (categoryMatch) {
+          category = categoryMatch[1];
+          cleanNotes = cleanNotes.replace(/\[Category:\s*(Work|Personal|Shopping|Other)\]/gi, '').trim();
+        } else {
+          // Hebrew equivalents
+          const hebrewCatMatch = notesStr.match(/קטגוריה:\s*(עבודה|אישי|קניות|אחר)/i);
+          if (hebrewCatMatch) {
+            const catVal = hebrewCatMatch[1];
+            if (catVal === 'עבודה') category = 'Work';
+            else if (catVal === 'אישי') category = 'Personal';
+            else if (catVal === 'קניות') category = 'Shopping';
+            else if (catVal === 'אחר') category = 'Other';
+            cleanNotes = cleanNotes.replace(/קטגוריה:\s*(עבודה|אישי|קניות|אחר)\s*/gi, '').trim();
           }
         }
 
@@ -43,6 +62,7 @@ export default async function handler(req: any, res: any) {
           title: task.title || 'משימה ללא שם',
           notes: cleanNotes,
           priority: priority.charAt(0).toUpperCase() + priority.slice(1).toLowerCase(), // Normalize to High, Medium, Low
+          category: category.charAt(0).toUpperCase() + category.slice(1).toLowerCase(), // Normalize to Work, Personal, Shopping, Other
           status: task.status || 'needsAction', // 'needsAction' or 'completed'
           due: task.due || '',
           completed: task.completed || ''
@@ -53,15 +73,16 @@ export default async function handler(req: any, res: any) {
     }
 
     if (method === 'POST') {
-      const { title, notes, due, priority } = req.body;
+      const { title, notes, due, priority, category } = req.body;
 
       if (!title) {
         return res.status(400).json({ error: "כותרת המשימה (title) הינה שדה חובה" });
       }
 
-      // Embed selected priority level in the notes
+      // Embed selected priority and category level in the notes
       const finalPriority = priority || 'Medium';
-      const notesPrefix = `[Priority: ${finalPriority}]`;
+      const finalCategory = category || 'Other';
+      const notesPrefix = `[Priority: ${finalPriority}] [Category: ${finalCategory}]`;
       const userNotes = notes || 'נוצרה אוטומטית על ידי העוזרת נועה';
       const finalNotes = `${notesPrefix}\n${userNotes}`;
 

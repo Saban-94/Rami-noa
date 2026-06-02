@@ -6,7 +6,7 @@
 }
 
 body {
-  background-color: #FAF9F6; /* לבן שמנת יוקרתי */
+  background-color: #FAF8F5; /* לבן שמנת יוקרתי וחמים */
   font-family: var(--font-sans);
   color: #1e293b;
   -webkit-tap-highlight-color: transparent;
@@ -14,8 +14,8 @@ body {
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -23,10 +23,63 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #e2e8f0;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #cbd5e1;
+}
+
+/* Custom Premium Accent Transitions & Keyframe Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes slideInLeft {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes slideInUp {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes pulseSoft {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; }
+}
+
+@keyframes subtleFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-in-up {
+  animation: slideInUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Smooth RTL helpers */
+.direction-rtl {
+  direction: rtl;
+}
+
+.RTL {
+  direction: rtl;
+  text-align: right;
 }

@@ -57,7 +57,7 @@ export default async function handler(req: any, res: any) {
       - תחת parameters, חלץ את השדות הנדרשים מההודעה בצורה מדויקת:
         * ליצירת פגישה: summary (כותרת), description (פירוט), startTime (בפורמט ISO 8601, נסה להסיק יחסית לזמן הנוכחי שסופק), endTime (בפורמט ISO 8601).
         * ליצירת קובץ בכונן: name (שם הקובץ/תיקייה), content (תוכן הקובץ - חבר סיכום קצר או תוכן מתאים אם המשתמש ביקש לשמור משהו), type (קובץ 'file' או תיקייה 'folder').
-        * ליצירת משימה: title (כותרת המשימה), notes (פירוט המשימה במידה ויש), priority (רמת עדיפות: High, Medium, Low בהתאם לרמת הקריטיות שמשתמעת מההודעה).
+        * ליצירת משימה: title (כותרת המשימה), notes (פירוט המשימה במידה ויש), priority (רמת עדיפות: High, Medium, Low בהתאם לרמת הקריטיות שמשתמעת מההודעה), category (קטגוריית משימה: Work, Personal, Shopping או Other בהתאם לתוכן המשימה).
     `;
 
     const response = await ai.models.generateContent({
@@ -98,7 +98,8 @@ export default async function handler(req: any, res: any) {
                     type: { type: Type.STRING, description: "file / folder" },
                     title: { type: Type.STRING },
                     notes: { type: Type.STRING },
-                    priority: { type: Type.STRING, description: "עבור משימות: רמת עדיפות (High, Medium, Low). נתח וקבע לפי מידת הדחיפות." }
+                    priority: { type: Type.STRING, description: "עבור משימות: רמת עדיפות (High, Medium, Low). נתח וקבע לפי מידת הדחיפות." },
+                    category: { type: Type.STRING, description: "עבור משימות: קטגוריית משימה (Work, Personal, Shopping, Other). נתח וקבע לפי תוכן המשימה." }
                   }
                 }
               },
@@ -207,7 +208,8 @@ export default async function handler(req: any, res: any) {
         else if (toolCall.api === 'tasks' && toolCall.method === 'create_task') {
           const tasksClient = getTasksClient();
           const finalPriority = params.priority || 'Medium';
-          const notesPrefix = `[Priority: ${finalPriority}]`;
+          const finalCategory = params.category || 'Other';
+          const notesPrefix = `[Priority: ${finalPriority}] [Category: ${finalCategory}]`;
           const finalNotes = `${notesPrefix}\n${params.notes || 'נוצרה על ידי העוזרת נועה'}`;
 
           const result = await tasksClient.tasks.insert({
